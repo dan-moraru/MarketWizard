@@ -6,14 +6,12 @@ from sklearn.metrics import classification_report
 
 # Init
 files = [
-    "market_data_normal_market.csv",
-    "market_data_stressed_market.csv",
-    "market_data_flash_crash.csv",
-    "market_data_mini_flash_crash.csv",
-    "market_data_hft_dominated.csv"
+    "training_data_normal_market.parquet",
+    "training_data_stressed_market.parquet",
+    "training_data_hft_dominated.parquet"
 ]
 
-df = pd.concat([pd.read_csv(f) for f in files])
+df = pd.concat([pd.read_parquet(f) for f in files])
 
 # Scenarios to labels
 le = LabelEncoder()

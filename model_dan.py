@@ -8,7 +8,6 @@ from sklearn.metrics import classification_report
 # 1. Load Data
 df = pd.read_parquet("master_training_data.parquet")
 
-# 1.2. Filter out crashes
 df = df[~df['scenario'].str.contains("crash", case=False)].copy()
 
 # 2. Pre-processing & Feature Engineering

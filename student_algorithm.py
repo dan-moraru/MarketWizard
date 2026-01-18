@@ -541,3 +541,4 @@ if __name__ == "__main__":
 
     bot = TradingBot(args.name, args.host, args.scenario, args.password, args.secure)
     bot.run()
+

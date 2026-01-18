@@ -232,37 +232,182 @@ class TradingBot:
         ║    - Or return None to not send an order                          ║
         ╚══════════════════════════════════════════════════════════════════╝
         """
-        
+    def decide_order(self, bid: float, ask: float, mid: float) -> Optional[Dict]:
         # Skip if no valid prices
         if mid <= 0 or bid <= 0 or ask <= 0:
             return None
-        
-        # =================================================================
-        # EXAMPLE STRATEGY: Conservative trading
-        # 
-        # - Cross the spread aggressively to get fills
-        # - Manage inventory by alternating buy/sell
-        # =================================================================
-        
-        # Only trade every 50 steps to avoid hitting order limits
-        if self.current_step % 50 != 0:
-            return None
-        
-        # If we're too long, sell aggressively (hit the bid)
+
+        qty = 100  # base quantity
+        # Ensure inventory management uses multiples of 100
         if self.inventory > 200:
             return {"side": "SELL", "price": round(bid, 2), "qty": 100}
-        
-        # If we're too short, buy aggressively (lift the offer)
         elif self.inventory < -200:
             return {"side": "BUY", "price": round(ask, 2), "qty": 100}
-        
-        # Otherwise, alternate buy/sell to demonstrate trading
-        elif (self.current_step // 50) % 2 == 0:
-            # Buy aggressively (cross the spread)
+
+        # Alternate buy/sell every 50 steps
+        if (self.current_step // 50) % 2 == 0:
             return {"side": "BUY", "price": round(ask, 2), "qty": 100}
         else:
-            # Sell aggressively (cross the spread)
             return {"side": "SELL", "price": round(bid, 2), "qty": 100}
+
+
+
+
+        # if bid <= 0 or ask <= 0 or mid <= 0:
+        #     return None
+
+        # # =============================
+        # # PARAMETERS (tune in training)
+        # # =============================
+        # BASE_SPREAD = 0.02
+        # STRESS_SPREAD = 0.06
+        # CRASH_SPREAD = 0.12
+
+        # BASE_QTY = 50
+        # SMALL_QTY = 15
+
+        # MAX_INV = 500
+        # SOFT_INV = 350
+
+        # TRADE_EVERY = 10
+
+        # # =============================
+        # # STEP THROTTLE
+        # # =============================
+        # if self.current_step % TRADE_EVERY != 0:
+        #     return None
+
+        # # =============================
+        # # MICROSTRUCTURE SIGNALS
+        # # =============================
+        # spread = ask - bid
+        # mid_move = abs(mid - self.last_mid) if hasattr(self, "last_mid") else 0
+        # self.last_mid = mid
+
+        # inv_ratio = max(-1.0, min(1.0, self.inventory / MAX_INV))
+
+        # # =============================
+        # # REGIME DETECTION
+        # # =============================
+        # if spread > 0.10 and mid_move > 0.08:
+        #     regime = "flash_crash"
+        # elif spread > 0.07 and mid_move > 0.03:
+        #     regime = "mini_flash_crash"
+        # elif spread > 0.05:
+        #     regime = "stressed_market"
+        # elif spread < 0.02:
+        #     regime = "hft_dominated"
+        # else:
+        #     regime = "normal_market"
+
+        # # =============================
+        # # HARD SURVIVAL OVERRIDE
+        # # =============================
+        # if regime == "flash_crash":
+        #     # NO MARKET MAKING — GET FLAT
+        #     if self.inventory > 0:
+        #         return {"side": "SELL", "price": round(bid, 2), "qty": SMALL_QTY}
+        #     elif self.inventory < 0:
+        #         return {"side": "BUY", "price": round(ask, 2), "qty": SMALL_QTY}
+        #     else:
+        #         return None
+
+        # # =============================
+        # # REGIME PARAMETERS
+        # # =============================
+        # if regime == "normal_market":
+        #     half_spread = BASE_SPREAD
+        #     qty = BASE_QTY
+        #     quote_both = True
+
+        # elif regime == "stressed_market":
+        #     half_spread = STRESS_SPREAD
+        #     qty = SMALL_QTY
+        #     quote_both = True
+
+        # elif regime == "mini_flash_crash":
+        #     half_spread = STRESS_SPREAD * 1.2
+        #     qty = SMALL_QTY
+        #     quote_both = False  # inventory reducing only
+
+        # elif regime == "hft_dominated":
+        #     half_spread = BASE_SPREAD * 1.3
+        #     qty = SMALL_QTY
+        #     quote_both = True
+
+        # else:
+        #     return None
+
+        # # =============================
+        # # INVENTORY SKEW
+        # # =============================
+        # skew = inv_ratio * half_spread
+
+        # bid_px = round(mid - half_spread - skew, 2)
+        # ask_px = round(mid + half_spread - skew, 2)
+
+        # # =============================
+        # # SOFT INVENTORY CONTROL
+        # # =============================
+        # if self.inventory > SOFT_INV:
+        #     return {"side": "SELL", "price": bid_px, "qty": SMALL_QTY}
+
+        # if self.inventory < -SOFT_INV:
+        #     return {"side": "BUY", "price": ask_px, "qty": SMALL_QTY}
+
+        # # =============================
+        # # ORDER SELECTION
+        # # =============================
+        # if not quote_both:
+        #     # Mini flash crash: reduce inventory only
+        #     if self.inventory > 0:
+        #         return {"side": "SELL", "price": bid_px, "qty": qty}
+        #     elif self.inventory < 0:
+        #         return {"side": "BUY", "price": ask_px, "qty": qty}
+        #     else:
+        #         return None
+
+        # # Alternate sides to avoid spamming
+        # if (self.current_step // TRADE_EVERY) % 2 == 0:
+        #     return {"side": "BUY", "price": bid_px, "qty": qty}
+        # else:
+        #     return {"side": "SELL", "price": ask_px, "qty": qty}
+
+
+
+
+
+
+        # # Skip if no valid prices
+        # if mid <= 0 or bid <= 0 or ask <= 0:
+        #     return None
+        
+        # # =================================================================
+        # # EXAMPLE STRATEGY: Conservative trading
+        # # 
+        # # - Cross the spread aggressively to get fills
+        # # - Manage inventory by alternating buy/sell
+        # # =================================================================
+        
+        # # Only trade every 50 steps to avoid hitting order limits
+        # if self.current_step % 50 != 0:
+        #     return None
+        
+        # # If we're too long, sell aggressively (hit the bid)
+        # if self.inventory > 200:
+        #     return {"side": "SELL", "price": round(bid, 2), "qty": 100}
+        
+        # # If we're too short, buy aggressively (lift the offer)
+        # elif self.inventory < -200:
+        #     return {"side": "BUY", "price": round(ask, 2), "qty": 100}
+        
+        # # Otherwise, alternate buy/sell to demonstrate trading
+        # elif (self.current_step // 50) % 2 == 0:
+        #     # Buy aggressively (cross the spread)
+        #     return {"side": "BUY", "price": round(ask, 2), "qty": 100}
+        # else:
+        #     # Sell aggressively (cross the spread)
+        #     return {"side": "SELL", "price": round(bid, 2), "qty": 100}
     
     # =========================================================================
     # ORDER HANDLING

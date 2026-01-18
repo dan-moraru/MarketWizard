@@ -38,10 +38,6 @@ Key design choices:
 
 During development and live testing, we uncovered two important market microstructure flaws in the simulation environment. Identifying and adapting to these behaviors became a critical part of our strategy design.
 
-### 0 values in markets
-
-The 0 sections seem to be either intentional as an obstacle for participants or an error in the synthetic data generation
-
 ### Normal market structure
 
 The reason the normal market making regime has such right returns is we essentially have a monopoly on market making. The market making bots seem to have a set interval they can trade on, around $0.25. This means if we move our bid and ask prices slightly inside of that we can infinitely sell back and forth between the gridlocked bots.

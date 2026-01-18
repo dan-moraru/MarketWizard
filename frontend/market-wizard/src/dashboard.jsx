@@ -64,7 +64,6 @@ export default function Dashboard() {
                 <li>Normal market</li>
                 <li>Stressed market</li>
                 <li>HFT-dominated market</li>
-                <li>Flash events</li>
               </ul>
             </li>
           </ul>

@@ -10,6 +10,14 @@ const FILES = {
   "Mini Flash Crash": "/data/training_data_mini_flash_crash.csv",
 };
 
+const PNL_FILES = {
+  "Normal Market": "/data/normal_market_pnl.csv",
+  "Stressed Market": "/data/stressed_market_pnl.csv",
+  "HFT Dominated": "/data/hft_dominated_pnl.csv",
+  "Flash Crash": "/data/flash_crash_pnl.csv",
+  "Mini Flash Crash": "/data/mini_flash_crash_pnl.csv",
+};
+
 const DESCRIPTIONS = {
   "Normal Market":
     "Stable bid-ask spread and smooth price movement. Market makers can quote tightly with low inventory risk.",
@@ -27,11 +35,24 @@ const DESCRIPTIONS = {
     "Short-lived liquidity shock with rapid spread widening and quick partial recovery.",
 };
 
+function loadingLayout(title) {
+  return {
+    title: {
+      text: "LOADING <br><sub style='font-size:12px;color:#aaa'>" + title + "</sub>",
+    },
+    xaxis: { title: "Step" },
+    yaxis: { title: "Value" },
+    legend: { orientation: "h" },
+  };
+}
+
 export default function MarketPlot({ market }) {
   const [data, setData] = useState(null);
+  const [pnlData, setPnlData] = useState(null);
 
   useEffect(() => {
-    setData(null); // reset on switch
+    setData(null);
+    setPnlData(null);
 
     fetch(FILES[market])
       .then((res) => res.text())
@@ -47,60 +68,110 @@ export default function MarketPlot({ market }) {
           },
         });
       });
-  }, [market]);    
+
+    fetch(PNL_FILES[market])
+      .then((res) => res.text())
+      .then((csv) => {
+        Papa.parse(csv, {
+          header: true,
+          dynamicTyping: true,
+          complete: (results) => {
+            const clean = results.data.filter(
+              (r) => typeof r.pnl === "number" && Number.isFinite(r.pnl)
+            );
+            setPnlData(clean);
+          },
+        });
+      });
+  }, [market]);
+
+  const primaryPlot =
+    !data ? (
+      <Plot
+        layout={loadingLayout(DESCRIPTIONS[market])}
+        style={{ width: "100%", height: "320px" }}
+        useResizeHandler
+      />
+    ) : (
+      <Plot
+        data={[
+          {
+            x: data.map((r) => r.step),
+            y: data.map((r) => r.mid),
+            type: "scatter",
+            mode: "lines",
+            name: "Mid",
+          },
+          {
+            x: data.map((r) => r.step),
+            y: data.map((r) => r.bid),
+            type: "scatter",
+            mode: "lines",
+            name: "Bid",
+            opacity: 0.5,
+          },
+          {
+            x: data.map((r) => r.step),
+            y: data.map((r) => r.ask),
+            type: "scatter",
+            mode: "lines",
+            name: "Ask",
+            opacity: 0.5,
+          },
+        ]}
+        layout={{
+          title: {
+            text:
+              market +
+              "<br><sub style='font-size:12px;color:#aaa'>" +
+              DESCRIPTIONS[market] +
+              "</sub>",
+          },
+          xaxis: { title: "Step" },
+          yaxis: { title: "Price" },
+          legend: { orientation: "h" },
+        }}
+        style={{ width: "100%", height: "320px" }}
+        useResizeHandler
+      />
+    );
+
+  const pnlPlot =
+    !pnlData ? (
+      <Plot
+        layout={loadingLayout("PnL profile")}
+        style={{ width: "100%", height: "320px" }}
+        useResizeHandler
+      />
+    ) : (
+      <Plot
+        data={[
+          {
+            x: pnlData.map((r) => r.step),
+            y: pnlData.map((r) => r.pnl),
+            type: "scatter",
+            mode: "lines",
+            name: "PnL",
+            line: { color: "#ff9933" },
+          },
+        ]}
+        layout={{
+          title: {
+            text: "PnL Over Time",
+          },
+          xaxis: { title: "Step" },
+          yaxis: { title: "PnL" },
+          legend: { orientation: "h" },
+        }}
+        style={{ width: "100%", height: "320px" }}
+        useResizeHandler
+      />
+    );
 
   return (
-    !data? 
-    <Plot
-      layout={{
-        title: {
-          text: "LOADING <br><sub style='font-size:12px;color:#aaa'>" + DESCRIPTIONS[market] +  "</sub>",
-        },
-        xaxis: { title: "Step" },
-        yaxis: { title: "Price" },
-        legend: { orientation: "h" },
-      }}
-      style={{ width: "100%", height: "100%" }}
-      useResizeHandler
-    /> 
-    : 
-    <Plot
-      data={[
-        {
-          x: data.map((r) => r.step),
-          y: data.map((r) => r.mid),
-          type: "scatter",
-          mode: "lines",
-          name: "Mid",
-        },
-        {
-          x: data.map((r) => r.step),
-          y: data.map((r) => r.bid),
-          type: "scatter",
-          mode: "lines",
-          name: "Bid",
-          opacity: 0.5,
-        },
-        {
-          x: data.map((r) => r.step),
-          y: data.map((r) => r.ask),
-          type: "scatter",
-          mode: "lines",
-          name: "Ask",
-          opacity: 0.5,
-        },
-      ]}
-      layout={{
-        title: {
-          text: market + "<br><sub style='font-size:12px;color:#aaa'>" + DESCRIPTIONS[market] +  "</sub>",
-
-        },
-        xaxis: { title: "Step" },
-        yaxis: { title: "Price" },
-        legend: { orientation: "h" },
-      }}
-      style={{ width: "100%", height: "100%" }}
-      useResizeHandler
-    />
+    <div style={{ display: "flex", flexDirection: "column", gap: "0" }}>
+      {primaryPlot}
+      {pnlPlot}
+    </div>
   );
 }

@@ -1,5 +1,5 @@
 """
-Student Trading Algorithm - The Penny Jumper (With Cancellation)
+Student Trading Algorithm - The Penny Jumper (Safe Spam Variant)
 ================================================================
 STRATEGY: PENNY JUMPING (Tick Size Arbitrage)
 TARGET: Normal Market (Tick Size $0.25)
@@ -7,8 +7,8 @@ TARGET: Normal Market (Tick Size $0.25)
 MECHANICS:
 1. Detect the "Bot Walls" at the nearest 0.25 increments.
 2. Place orders exactly 1 cent in front of them (Bid + 0.01 / Ask - 0.01).
-3. Steal all queue priority from the Market Maker bots.
-4. If orders don't fill in 20 ticks, CANCEL them and re-price.
+3. REFRESH: If orders don't fill in 20 ticks, place NEW ones to chase price.
+4. SAFETY: Limit total active orders to 45 to prevent server disconnect.
 """
 
 import json
@@ -78,7 +78,8 @@ class TradingBot:
         self.last_known_inventory = 0
         self.flip_flop = False  # Used to alternate Buy/Sell placement
 
-        # Track Active Order IDs for Cancellation
+        # Spam Management
+        self.ghost_order_count = 0  # Track how many we've stacked
         self.active_buy_id = None
         self.active_sell_id = None
 
@@ -154,15 +155,14 @@ class TradingBot:
 
     def decide_order(self, bid: float, ask: float, mid: float) -> Optional[Dict]:
         """
-        THE PENNY JUMPER STRATEGY (Adaptive & Anchored & Cancellable)
+        THE PENNY JUMPER (Safe Spam Edition)
         """
         if bid <= 0 or ask <= 0:
             return None
 
         # ------------------------------------------------------------------
-        # 1. DETECT FILLS (RELOAD MECHANISM)
+        # 1. DETECT FILLS (RELOAD & FLUSH)
         # ------------------------------------------------------------------
-        # If inventory changes, we got a fill. We must RELOAD our orders immediately.
         if self.inventory != self.last_known_inventory:
             change = self.inventory - self.last_known_inventory
             print(
@@ -170,16 +170,14 @@ class TradingBot:
             )
             self.last_known_inventory = self.inventory
 
-            # If we partially filled, the other side might still be active.
-            # We aggressively reset to stay competitive.
-            # (Ideally we cancel the remaining side, but let's just reset flag)
+            # RESET EVERYTHING
             self.active_orders = False
-            self.last_active_step = self.current_step  # Reset timer
+            self.last_active_step = self.current_step
+            self.ghost_order_count = 0  # Assuming fill clears the pressure
 
         # ------------------------------------------------------------------
         # 2. INVENTORY PROTECTION (DUMP VALVE)
         # ------------------------------------------------------------------
-        # If we get too heavy, stop playing games and dump to the bots.
         if self.inventory > 1000:
             bot_bid = math.floor(bid / 0.25) * 0.25
             return self._create_order("SELL", bot_bid, 100)
@@ -189,37 +187,32 @@ class TradingBot:
             return self._create_order("BUY", bot_ask, 100)
 
         # ------------------------------------------------------------------
-        # 3. TIMEOUT & CANCELLATION (THE FIX)
+        # 3. SPAM LOGIC (The "Refresh")
         # ------------------------------------------------------------------
-        # If orders have been active for 50 steps without filling, they are stale.
-        # We must CANCEL them to free up the 50-order limit and re-price.
         if self.active_orders:
-            if self.current_step - self.last_active_step > 50:
-                print(
-                    f"[{self.student_id}] Prices Stale (50 ticks). Cancelling & Repositioning..."
-                )
+            # Refresh every 20 ticks
+            if self.current_step - self.last_active_step > 20:
+                # ONLY refresh if we have room in the 50-order buffer
+                if self.ghost_order_count < 45:
+                    # Attempt Cancel (Fire & Forget)
+                    if self.active_buy_id:
+                        self._cancel_order(self.active_buy_id)
+                    if self.active_sell_id:
+                        self._cancel_order(self.active_sell_id)
 
-                # Cancel both sides
-                if self.active_buy_id:
-                    self._cancel_order(self.active_buy_id)
-                if self.active_sell_id:
-                    self._cancel_order(self.active_sell_id)
-
-                self.active_orders = False
-                self.active_buy_id = None
-                self.active_sell_id = None
-                return None  # Wait for next tick to place new ones
+                    # Mark inactive so we generate new orders next
+                    self.active_orders = False
+                    self.ghost_order_count += 2  # Account for the 2 new ones coming
+                    # print(f"[{self.student_id}] Refreshing... Stack Size: {self.ghost_order_count}")
+                else:
+                    # We are full. Wait for a fill or manual expiration.
+                    return None
             else:
-                return None  # Still waiting, valid orders
+                return None  # Wait
 
         # ------------------------------------------------------------------
         # 4. PRICE CALCULATION (ADAPTIVE)
         # ------------------------------------------------------------------
-        # Check if we are already the best price
-        target_bid = bid
-        target_ask = ask
-
-        # Adaptive jump: If current bid is us, hold. If not, jump.
         if abs(bid - self.my_last_bid) < 0.001:
             my_bid = bid
         else:
@@ -230,21 +223,17 @@ class TradingBot:
         else:
             my_ask = round(ask - 0.01, 2)
 
-        # Spread safety
         if my_bid >= my_ask:
             return None
 
         # ------------------------------------------------------------------
         # 5. EXECUTION
         # ------------------------------------------------------------------
-        # We alternate Buy/Sell requests
         self.flip_flop = not self.flip_flop
-
         qty = 100
 
         if self.flip_flop:
             self.my_last_bid = my_bid
-            # Store ID logic handled in _send_order wrapper
             return self._create_order("BUY", my_bid, qty)
         else:
             self.my_last_ask = my_ask
@@ -274,10 +263,9 @@ class TradingBot:
                 else 0
             )
 
-            # Print Stats occasionally
             if self.current_step % 200 == 0:
                 print(
-                    f"Step {self.current_step} | Inv: {self.inventory} | PnL: {self.pnl:.2f}"
+                    f"Step {self.current_step} | Inv: {self.inventory} | PnL: {self.pnl:.2f} | Stack: {self.ghost_order_count}"
                 )
 
             order = self.decide_order(self.last_bid, self.last_ask, self.last_mid)
@@ -290,7 +278,6 @@ class TradingBot:
     def _send_order(self, order: Dict):
         order_id = f"ORD_{self.current_step}_{self.orders_sent}"
 
-        # Track IDs for cancellation
         if order["side"] == "BUY":
             self.active_buy_id = order_id
         else:
@@ -309,8 +296,6 @@ class TradingBot:
             pass
 
     def _cancel_order(self, order_id: str):
-        # Protocol guess: "action": "CANCEL" with order_id
-        # If this fails, we will just hit the limit again, but it's our best bet.
         msg = {"action": "CANCEL", "order_id": order_id}
         try:
             self.order_ws.send(json.dumps(msg))
@@ -376,4 +361,3 @@ if __name__ == "__main__":
 
     bot = TradingBot(args.name, args.host, args.scenario, args.password, args.secure)
     bot.run()
-

@@ -145,7 +145,7 @@ def analyze_probe_results(filename):
     plt.tight_layout()
 
     # Save plot instead of showing it (fixes non-interactive backend error)
-    output_filename = "probe_analysis.png"
+    output_filename = "probe_analysis_arb.png"
     plt.savefig(output_filename)
     print(f"\nAnalysis plot saved to '{output_filename}'")
 
@@ -155,7 +155,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "file",
         nargs="?",
-        default="probe_results_normal_market.csv",
+        default="probe_results_2stressed_market.csv",
         help="CSV file to analyze",
     )
     args = parser.parse_args()

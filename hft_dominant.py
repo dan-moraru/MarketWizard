@@ -1,15 +1,14 @@
 """
-Student Trading Algorithm - The Arbitrage & Spray Engine
-======================================================
-STRATEGY MIX:
-1. NORMAL: "Spray and Pray" (High-Freq Inventory Cycling)
-2. STRESSED: "Stale Quote Sniping" (Arbitrage against slow bots)
-3. HFT: "Momentum Taker" (Aggressive trend riding)
+Student Trading Algorithm - The Spray and Pray
+==============================================
+STRATEGY: HIGH-FREQUENCY SPRAY (Inventory Cycling)
+TARGET: Normal Market
 
 MECHANICS:
-- Global "Crossed Market" check for risk-free profit (Bid >= Ask).
-- EMA-based Fair Value detection to find mispriced orders in crashing markets.
-- Infinite Liquidity Loop for flat markets.
+1. Maintain a 'stack' of up to 45 open orders.
+2. Continuously place orders at the best possible price (Bid+0.01 / Ask-0.01).
+3. As orders fill, immediately replace them (Infinite Liquidity Loop).
+4. Rely on the sheer volume of orders to catch market moves.
 """
 
 import json
@@ -31,6 +30,7 @@ from collections import deque
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 INVENTORY_LIMIT = 5000
+REGIME_SCENARIOS = ("normal_market", "stressed_market", "hft_dominated")
 
 
 class TradingBot:
@@ -68,7 +68,6 @@ class TradingBot:
         self.last_ask = 0.0
         self.last_mid = 0.0
         self.price_history = deque(maxlen=20)
-        self.mid_ema = None  # For Stale Quote detection
 
         # Connections
         self.market_ws = None
@@ -188,14 +187,8 @@ class TradingBot:
             if self.last_bid > 0 and self.last_ask > 0:
                 self.last_mid = (self.last_bid + self.last_ask) / 2
 
-            # Update EMA for Stale Quote Detection
             if self.last_mid > 0:
                 self.price_history.append(self.last_mid)
-                alpha = 0.1  # Fast EMA
-                if self.mid_ema is None:
-                    self.mid_ema = self.last_mid
-                else:
-                    self.mid_ema = alpha * self.last_mid + (1 - alpha) * self.mid_ema
 
             if self.current_step % 500 == 0:
                 print(
@@ -210,49 +203,26 @@ class TradingBot:
             print(f"Market Error: {e}")
 
     # =========================================================================
-    # DECISION LOGIC (REGIME SWITCHER + ARBITRAGE)
+    # DECISION LOGIC (REGIME SWITCHER)
     # =========================================================================
 
     def decide_order(self, bid: float, ask: float, mid: float) -> Optional[Dict]:
         if mid <= 0 or bid <= 0 or ask <= 0:
             return None
 
-        # ------------------------------------------------------------------
-        # 0. PURE ARBITRAGE (Crossed Market) - HIGHEST PRIORITY
-        # ------------------------------------------------------------------
-        if bid >= ask:
-            # Market is crossed! Free money.
-            # We execute against the mispricing immediately.
-            # We want to BUY at Ask (low) and SELL at Bid (high).
-            print(
-                f"[{self.student_id}] !!! CROSSED MARKET ARBITRAGE !!! Bid:{bid} >= Ask:{ask}"
-            )
-
-            qty = 100
-            # Prioritize reducing inventory if we have it
-            if self.inventory > 0:
-                return self._create_order("SELL", bid, qty)
-            elif self.inventory < 0:
-                return self._create_order("BUY", ask, qty)
-            else:
-                # If flat, take the side that looks most profitable or random
-                return self._create_order("BUY", ask, qty)
-
-        # ------------------------------------------------------------------
-        # 1. RISK MANAGEMENT
-        # ------------------------------------------------------------------
+        # Global Risk Check
         if abs(self.inventory) > INVENTORY_LIMIT:
             print("too much inventory hit")
             return None
 
+        # Specific Risk Manager (Unwind)
         risk_order = self._risk_manage_inventory(bid, ask, mid)
         if risk_order:
             return risk_order
 
-        # ------------------------------------------------------------------
-        # 2. REGIME DETECTION
-        # ------------------------------------------------------------------
+        # Feature Engineering & Prediction
         engineered = self._update_engineered_state_and_get_features(bid, ask, mid)
+
         regime = None
         if self.regime_model is not None and engineered:
             try:
@@ -272,7 +242,7 @@ class TradingBot:
         return handler(bid, ask, mid, regime)
 
     # =========================================================================
-    # STRATEGY 1: SPRAY AND PRAY (Normal Market)
+    # STRATEGY: SPRAY AND PRAY (Normal Market)
     # =========================================================================
 
     def _strategy_normal_market(
@@ -281,11 +251,12 @@ class TradingBot:
         """
         Implementation of SPRAY AND PRAY
         """
-        # Capacity Check
+        # 1. Capacity Check (Don't exceed server limits)
         if self.open_order_count >= self.max_spray_count:
             return None
 
-        # Price Calculation
+        # 2. Price Calculation (Adaptive Anti-Spiral)
+        # Check if we are already the top of book. If so, reinforce. If not, jump.
         if abs(bid - self.my_last_bid) < 0.001:
             my_bid = bid
         else:
@@ -296,10 +267,11 @@ class TradingBot:
         else:
             my_ask = round(ask - 0.01, 2)
 
+        # Spread Safety
         if my_bid >= my_ask:
             return None
 
-        # Execution
+        # 3. Execution (Alternating Fire)
         self.flip_flop = not self.flip_flop
         qty = 100
 
@@ -311,78 +283,79 @@ class TradingBot:
             return self._create_order("SELL", my_ask, qty)
 
     # =========================================================================
-    # STRATEGY 2: STALE QUOTE SNIPING (Stressed Market)
+    # OTHER STRATEGIES
     # =========================================================================
 
     def _strategy_stressed_market(
         self, bid: float, ask: float, mid: float, regime: str
     ) -> Optional[Dict]:
-        """
-        Arbitrage against 'Stale' bots in a crashing/stressed market.
-        If Fair Value (EMA) moves fast, bots might leave stale orders. We hit them.
-        """
-        if self.mid_ema is None:
+        # Simple momentum fallback for stressed markets
+        momentum = self._recent_momentum()
+        if abs(momentum) < 0.01 * mid:
             return None
-
-        # Threshold: How far off does a quote need to be to be considered "Arb"?
-        # Stressed markets have wide spreads, so we look for deviations inside the spread.
-        ARB_THRESHOLD = 0.15
-
-        qty = 200  # Aggressive size for arb
-
-        # 1. Stale Bid Sniping (Bearish Arb)
-        # If Current Bid is significantly HIGHER than Fair Value, the bidder is asleep.
-        # We SELL to them before they cancel.
-        if bid > (self.mid_ema + ARB_THRESHOLD):
-            # print(f"[{self.student_id}] SNIPING STALE BID: {bid} > EMA {self.mid_ema:.2f}")
-            return self._create_order("SELL", bid, qty)  # Hit the Bid (Taker)
-
-        # 2. Stale Ask Sniping (Bullish Arb)
-        # If Current Ask is significantly LOWER than Fair Value, the seller is asleep.
-        # We BUY from them cheap.
-        if ask < (self.mid_ema - ARB_THRESHOLD):
-            # print(f"[{self.student_id}] SNIPING STALE ASK: {ask} < EMA {self.mid_ema:.2f}")
-            return self._create_order("BUY", ask, qty)  # Lift the Ask (Taker)
-
-        # 3. Fallback: Mild Momentum if no arb found
-        # If no obvious arb, we default to a simplified Spray (Making liquidity)
-        # but with wider spreads to compensate for volatility risk.
-        return self._strategy_normal_market(bid - 0.05, ask + 0.05, mid, regime)
-
-    # =========================================================================
-    # STRATEGY 3: MOMENTUM TAKER (HFT Dominated)
-    # =========================================================================
+        qty = 50
+        if momentum > 0:
+            return self._create_order("BUY", min(ask + 0.05, ask + 0.10), qty)
+        return self._create_order("SELL", max(bid - 0.05, bid - 0.10), qty)
 
     def _strategy_hft_dominated(
         self, bid: float, ask: float, mid: float, regime: str
     ) -> Optional[Dict]:
         """
-        Momentum Surfing + Taker Aggression.
-        In HFT regimes, trends are fast. We don't want to sit in queue (Maker).
-        We want to TAKE liquidity (Taker) in the direction of the move.
+        STRATEGY: MOMENTUM SURFING (HFT)
+        Target: Ride the aggressive trends typical of HFT regimes.
+        Mechanics: Directional Spray. Only provide liquidity on the side of the trend.
         """
+        # 1. Capacity Check
+        if self.open_order_count >= self.max_spray_count:
+            return None
+
+        # 2. Detect Momentum (Short term)
+        # Use last 10 ticks for a smooth trend signal
         lookback = 10
         if len(self.price_history) < lookback:
             return None
 
         momentum = mid - self.price_history[-lookback]
-        THRESHOLD = 0.05  # Strong move required
+
+        # Threshold: How much movement constitutes a "trend"?
+        # HFT moves are often small but persistent.
+        THRESHOLD = 0.02
 
         qty = 100
 
+        # 3. Directional Execution
         if momentum > THRESHOLD:
-            # Trend UP -> Panic BUY
-            # We pay the Ask to get in NOW.
-            return self._create_order("BUY", ask, qty)
+            # Trend UP -> BUY (Ride it)
+            # We want to be the best Bid to catch sellers dumping into the trend
+            if abs(bid - self.my_last_bid) < 0.001:
+                my_bid = bid
+            else:
+                my_bid = round(bid + 0.01, 2)
+
+            if my_bid >= ask:
+                return None  # Safety
+
+            self.my_last_bid = my_bid
+            return self._create_order("BUY", my_bid, qty)
 
         elif momentum < -THRESHOLD:
-            # Trend DOWN -> Panic SELL
-            # We hit the Bid to get out NOW.
-            return self._create_order("SELL", bid, qty)
+            # Trend DOWN -> SELL
+            if abs(ask - self.my_last_ask) < 0.001:
+                my_ask = ask
+            else:
+                my_ask = round(ask - 0.01, 2)
+
+            if bid >= my_ask:
+                return None  # Safety
+
+            self.my_last_ask = my_ask
+            return self._create_order("SELL", my_ask, qty)
 
         else:
-            # If choppy/flat HFT, revert to Spraying but carefully
-            return self._strategy_normal_market(bid, ask, mid, regime)
+            # No strong trend. Sit out or spray normally?
+            # Let's sit out to save ammo for the big moves.
+            return None
 
     # =========================================================================
     # ORDER MANAGEMENT
@@ -456,6 +429,7 @@ class TradingBot:
                 )
 
             elif msg_type == "ERROR":
+                # Safety Reset if we hit limits
                 if "limit" in data.get("message", "").lower():
                     self.open_order_count = 50  # Pause firing
         except:
@@ -479,6 +453,8 @@ class TradingBot:
             return "hft_dominated"
         return "normal_market"
 
+    # (Skipping full implementation of feature engineering/model loading for brevity,
+    # but assuming they exist as per template)
     def _load_regime_model(self, path):
         try:
             booster = xgb.Booster()
@@ -497,7 +473,7 @@ class TradingBot:
             pass
 
     def _update_engineered_state_and_get_features(self, bid, ask, mid):
-        return None
+        return None  # Placeholder to allow script to run without model file
 
     def _predict_regime_from_engineered_features(self, feats):
         return 0
@@ -515,7 +491,7 @@ class TradingBot:
 
     def run(self):
         if self.register() and self.connect():
-            print(f"[{self.student_id}] Arbitrage & Spray Running...")
+            print(f"[{self.student_id}] Spray and Pray Running...")
             try:
                 while self.running:
                     time.sleep(1)

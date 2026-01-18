@@ -73,7 +73,7 @@ class ProbeBot:
         # 0.05 = Nickel Jump
         # 0.12 = Mid-ish
         # 0.25 = Full Tick Jump
-        self.probe_schedule = [0.35, 0.4, 0.45, 0.5, 0.75, 1.0]
+        self.probe_schedule = [-0.01, -0.05]
         self.current_probe_idx = 0
 
         self.active_probe = None  # {type: "BUY", price: float, offset: float, start_step: int, order_id: str}

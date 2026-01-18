@@ -37,7 +37,7 @@ REGIME_SCENARIOS = (
 )
 
 INVENTORY_LIMIT = 5000
-RISK_UNWIND_THRESHOLD = 10
+RISK_UNWIND_THRESHOLD = 1000
 RISK_UNWIND_MAX = 150
 
 # NEW: Max number of open/resting orders allowed by exchange (your error was 50)

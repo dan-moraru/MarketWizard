@@ -47,7 +47,7 @@ export default function Dashboard() {
 
           <p>
             We streamed live bid/ask feeds, logged them, and trained regime classifiers to
-            detect the three dominant states — Normal, Stressed, and HFT — so each specialized
+            detect the three dominant states, Normal, Stressed, and HFT, so each specialized
             algorithm could be triggered only when its matching microstructure signature appeared.
           </p>
 

@@ -6,10 +6,9 @@ body {
 /* Root layout */
 .dashboard {
   display: flex;
-  width: 95vw;
+  width: 100%;
   color: #1f2933;
   padding-top: 2.5%;
-  padding-bottom: 2.5%;
 }
 
 /* Sidebar */
@@ -51,7 +50,8 @@ body {
 
 /* Main content */
 .content {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
 }
 
 /* Graph container */
@@ -62,4 +62,41 @@ body {
 .graph {
   color: black;
   font-size: 18px;
+}
+
+.insights {
+  margin-top: 40px;
+  padding: 32px 40px;
+  max-width: 1000px;
+  margin-left: auto;
+  margin-right: auto;
+  line-height: 1.7;
+  color: #1f2933;
+}
+
+.insights h2 {
+  font-size: 26px;
+  margin-bottom: 12px;
+}
+
+.insights h3 {
+  margin-top: 28px;
+  margin-bottom: 8px;
+  color: #111827;
+}
+
+.insights p {
+  margin-bottom: 12px;
+  color: #374151;
+}
+
+.insights ul {
+  margin-left: 20px;
+  margin-bottom: 12px;
+}
+
+.insights hr {
+  margin: 32px 0;
+  border: none;
+  border-top: 1px solid #e5e7eb;
 }

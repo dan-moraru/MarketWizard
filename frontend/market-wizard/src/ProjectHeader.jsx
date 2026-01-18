@@ -2,27 +2,40 @@ import React from "react";
 
 function ProjectHeader() {
   return (
-    <div
-    style={{
-      background: "#c8102e", // Red gradient
-      color: "white", // White text
-      padding: "0.1vh 5vh 0.1vh 5vh",
-      width: "90vw",
-      boxShadow: "0 8px 24px rgba(0,0,0,0.25)", // Keep subtle shadow
-      alignItems: "center",
-      fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif", // Corporate font
-    }}
-    >  
-      {/* LEFT: Project Overview */}
-      <div>
-        <h1 style={{ marginBottom: "12px" }}>Market Regime Visualizer</h1>
+    <header
+      style={{
+        width: "100%",
+        background: "#c8102e",
+        boxShadow: "0 4px 14px rgba(0,0,0,0.2)",
+      }}
+    >
+      <div
+        style={{
+          maxWidth: "1200px",
+          margin: "0 auto",
+          padding: "18px 24px",
+          color: "white",
+          fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
+          boxSizing: "border-box",
+        }}
+      >
+        <h1 style={{ margin: 0, fontSize: "26px" }}>
+          Market Wizard - Market Making Bot
+        </h1>
 
-        <p style={{ fontSize: "18px", lineHeight: "1.5" }}>
-          We logged high-frequency market data to analyze price microstructure and better understand regime behavior across different market conditions.
-
+        <p
+          style={{
+            marginTop: "6px",
+            marginBottom: 0,
+            fontSize: "15px",
+            opacity: 0.9,
+            lineHeight: "1.4",
+          }}
+        >
+          McHacks 13
         </p>
       </div>
-    </div>
+    </header>
   );
 }
 

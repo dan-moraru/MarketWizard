@@ -64,7 +64,7 @@ function CSVPlot() {
   }, []);
 
   return (
-    <div style={{ width: "95%", margin: "auto" }}>
+    <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
       <h1>Market Regime Visualizer</h1>
 
       <p

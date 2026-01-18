@@ -87,6 +87,11 @@ class TradingBot:
         self.last_mid = 0.0
         self.price_history = deque(maxlen=5)
 
+        # Track our last quoted prices + alternating order direction (needed by _strategy_normal_market)
+        self.my_last_bid = 0.0
+        self.my_last_ask = 0.0
+        self.flip_flop = False
+
         # WebSocket connections
         self.market_ws = None
         self.order_ws = None
@@ -106,6 +111,9 @@ class TradingBot:
         # NEW: Open order tracking so we can cancel oldest
         self.open_order_queue = deque()  # oldest -> newest order_ids
         self.open_order_set = set()      # fast membership check
+
+        # NEW: Track cancels that have been sent but not confirmed yet
+        self.cancel_pending_set = set()
 
         # Load model + metadata
         self.regime_model = self._load_regime_model(regime_model_path)
@@ -252,7 +260,12 @@ class TradingBot:
             # If we want to send an order, cancel oldest orders first if needed
             if order and self.order_ws and self.order_ws.sock and self._can_send_order():
                 self._ensure_open_order_capacity(extra_needed=1)
-                self._send_order(order)
+
+                # IMPORTANT FIX:
+                # Do NOT send a new order unless we are strictly under MAX_OPEN_ORDERS
+                # because cancels are async and exchange may still count them as open.
+                if len(self.open_order_set) < MAX_OPEN_ORDERS:
+                    self._send_order(order)
 
             self._send_done()
 
@@ -627,10 +640,65 @@ class TradingBot:
         return self._create_order(side, round(price, 2), qty)
 
     def _strategy_hft_dominated(self, bid: float, ask: float, mid: float, regime: str) -> Optional[Dict]:
-        return self._create_order("BUY", ask, 2000)
+        # 1) Check current spread
+        spread = ask - bid
+        if spread <= 0:
+            return None
+
+        # 2) Use last 3 quotes (mid prices) for linear regression + momentum
+        #    Linear regression slope on points (t=0,1,2) with y = last 3 mids
+        direction = 0  # +1 = up, -1 = down, 0 = neutral
+        if len(self.price_history) >= 3:
+            y0, y1, y2 = self.price_history[-3], self.price_history[-2], self.price_history[-1]
+
+            # slope = cov(t,y) / var(t) for t=[0,1,2]
+            # mean(t)=1, var(t)=2
+            mean_y = (y0 + y1 + y2) / 3.0
+            cov = (-1.0) * (y0 - mean_y) + 0.0 * (y1 - mean_y) + (1.0) * (y2 - mean_y)
+            slope = cov / 2.0
+
+            momentum = y2 - y1
+
+            # Combine regression slope + momentum to decide direction
+            combined = slope + momentum
+            if combined > 0:
+                direction = 1
+            elif combined < 0:
+                direction = -1
+            else:
+                direction = 0
+        elif len(self.price_history) >= 2:
+            momentum = self.price_history[-1] - self.price_history[-2]
+            if momentum > 0:
+                direction = 1
+            elif momentum < 0:
+                direction = -1
+            else:
+                direction = 0
+
+        # 3) Set a tighter spread in that direction:
+        #    Buy at the bid +0.01 and sell at the ask-0.01 to beat others
+        qty = 100
+
+        if spread > 0.02:
+            my_bid = round(bid + 0.01, 2)
+            my_ask = round(ask - 0.01, 2)
+        else:
+            # If spread is too tight to safely improve both sides, just sit at top-of-book
+            my_bid = round(bid, 2)
+            my_ask = round(ask, 2)
+
+        # Directional posting: tighten on the side we expect to get hit first
+        if direction > 0:
+            return self._create_order("BUY", my_bid, qty)
+        elif direction < 0:
+            return self._create_order("SELL", my_ask, qty)
+
+        # Neutral: do nothing
+        return None
 
     # =========================================================================
-    # ORDER CANCELLATION (NEW)
+    # ORDER CANCELLATION (FIXED)
     # =========================================================================
 
     def _send_cancel(self, order_id: str) -> None:
@@ -641,6 +709,8 @@ class TradingBot:
         try:
             if not (self.order_ws and self.order_ws.sock):
                 return
+            # Mark cancel as pending (do NOT remove from open set yet)
+            self.cancel_pending_set.add(order_id)
             msg = {"type": "CANCEL_ORDER", "order_id": order_id}
             self.order_ws.send(json.dumps(msg))
         except Exception as e:
@@ -648,15 +718,30 @@ class TradingBot:
 
     def _ensure_open_order_capacity(self, extra_needed: int = 1) -> None:
         """
-        If sending a new order would exceed MAX_OPEN_ORDERS,
-        cancel oldest orders until there is room.
+        FIXED:
+        Cancels are async, so we cannot "free" capacity instantly.
+        We issue cancel requests for enough oldest orders to make room,
+        BUT we only remove orders from open tracking when we receive CANCELLED/FILL.
         """
-        target_max = MAX_OPEN_ORDERS - extra_needed
-        while len(self.open_order_set) > target_max and self.open_order_queue:
+        # How many orders must be removed (by the exchange) before sending "extra_needed" more
+        need_to_free = (len(self.open_order_set) + extra_needed) - MAX_OPEN_ORDERS
+        if need_to_free <= 0:
+            return
+
+        cancels_sent = 0
+        while cancels_sent < need_to_free and self.open_order_queue:
             oldest_id = self.open_order_queue.popleft()
-            if oldest_id in self.open_order_set:
-                self.open_order_set.remove(oldest_id)
-                self._send_cancel(oldest_id)
+
+            # If it's not actually open anymore, skip it
+            if oldest_id not in self.open_order_set:
+                continue
+
+            # If we already requested cancel, don't spam
+            if oldest_id in self.cancel_pending_set:
+                continue
+
+            self._send_cancel(oldest_id)
+            cancels_sent += 1
 
     def _mark_order_open(self, order_id: str) -> None:
         if order_id not in self.open_order_set:
@@ -667,6 +752,8 @@ class TradingBot:
         # remove from set; queue removal is lazy (we skip non-members later)
         if order_id in self.open_order_set:
             self.open_order_set.remove(order_id)
+        if order_id in self.cancel_pending_set:
+            self.cancel_pending_set.remove(order_id)
 
     # =========================================================================
     # ORDER HANDLING

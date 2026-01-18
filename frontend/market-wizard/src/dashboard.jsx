@@ -145,8 +145,10 @@ export default function Dashboard() {
 
           <h4>Fill Time and Fill Probabilties</h4>
           <p>
-            Another thing to note is the rate and latency that the bots offer you
+            After simulating the fill times and probabilties as a function of the price improvement over the bid/ask
+            we get this trend for the normal regime:
           </p>
+          <img src="latencyAndPriceOffset.webp" alt="">
 
           <h3>Key Lesson</h3>
           <p>
@@ -201,7 +203,6 @@ export default function Dashboard() {
             drops below the threshold.
           </p>
         </div>
-
       </main>
     </div>
   );

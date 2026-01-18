@@ -574,18 +574,31 @@ class TradingBot:
 
     def _risk_manage_inventory(self, bid: float, ask: float, mid: float) -> Optional[Dict]:
         exposure = self.inventory
+
+        # Only unwind if we're beyond the threshold
         if abs(exposure) <= RISK_UNWIND_THRESHOLD:
             return None
 
-        qty = min(abs(exposure) - RISK_UNWIND_THRESHOLD, RISK_UNWIND_MAX)
-        qty = max(qty, 1)
+        # How much we *want* to reduce (raw)
+        desired_qty = min(abs(exposure) - RISK_UNWIND_THRESHOLD, RISK_UNWIND_MAX)
 
+        # Enforce lot size = 100
+        qty = (desired_qty // 100) * 100
+
+        # If we can't make a valid lot, don't send anything
+        # (prevents invalid qty like 50, 60, 150, etc.)
+        if qty < 100:
+            return None
+
+        # If long -> sell to reduce
         if exposure > 0:
             price = max(bid - 0.01, 0.01)
             return self._create_order("SELL", price, qty)
 
+        # If short -> buy to reduce
         price = min(ask + 0.01, ask + 0.03)
         return self._create_order("BUY", price, qty)
+
 
     def _strategy_normal_market(self, bid: float, ask: float, mid: float, regime: str) -> Optional[Dict]:
         momentum = self._recent_momentum()
@@ -619,19 +632,9 @@ class TradingBot:
         return self._create_order("SELL", price, qty)
 
     def _strategy_hft_dominated(self, bid: float, ask: float, mid: float, regime: str) -> Optional[Dict]:
-        momentum = self._recent_momentum()
-        if abs(momentum) < 0.0015 * mid:
-            return None
-
-        small_tick = max(0.005, mid * 0.0003)
-        qty = 40
-
-        if momentum > 0:
-            price = min(ask + small_tick, ask + 0.02)
-            return self._create_order("BUY", price, qty)
-
-        price = max(bid - small_tick, bid - 0.02)
-        return self._create_order("SELL", price, qty)
+        print(ask)
+        if ask == 1000.3:
+            return self._create_order("BUY", ask, 200)
 
     # =========================================================================
     # ORDER HANDLING

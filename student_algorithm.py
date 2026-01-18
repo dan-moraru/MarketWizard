@@ -24,6 +24,8 @@ from collections import deque
 import math
 import random
 import os
+from collections import deque
+
 
 # Suppress SSL warnings for self-signed certificates
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -107,6 +109,10 @@ class TradingBot:
         self.order_history = deque()
         self.order_limit_window = 50
         self.order_limit_max = 1
+
+        # Track last 3 spreads for z-score detection in HFT dominated regime
+        self._spread_hist3 = deque(maxlen=3)
+
 
         # NEW: Open order tracking so we can cancel oldest
         self.open_order_queue = deque()  # oldest -> newest order_ids
@@ -640,62 +646,126 @@ class TradingBot:
         return self._create_order(side, round(price, 2), qty)
 
     def _strategy_hft_dominated(self, bid: float, ask: float, mid: float, regime: str) -> Optional[Dict]:
-        # 1) Check current spread
+        """
+        HFT-dominated strategy:
+        - Detect when spread becomes unusually wide via z-score vs last 3 spreads
+        - Bet spread will tighten (mean-revert)
+        - Immediately place tighter order inside spread:
+            BUY  @ bid + expected_spread_move   (if market likely up)
+            SELL @ ask - expected_spread_move  (if market likely down)
+        """
+
+        TICK = 0.01
+        Z_THRESH = 1.5          # "unusually high spread" threshold
+        REVERT_K = 0.75         # fraction of (spread - mean_spread) you expect to revert
+        MAX_MOVE = 0.05         # cap the expected spread move so you don't do insane jumps
+        QTY = 100
+
+        # Basic checks
         spread = ask - bid
-        if spread <= 0:
+        if bid <= 0 or ask <= 0 or mid <= 0 or spread <= 0:
             return None
 
-        # 2) Use last 3 quotes (mid prices) for linear regression + momentum
-        #    Linear regression slope on points (t=0,1,2) with y = last 3 mids
-        direction = 0  # +1 = up, -1 = down, 0 = neutral
+        # Need last 3 spreads to compute baseline
+        if len(self._spread_hist3) < 3:
+            self._spread_hist3.append(spread)
+            return None
+
+        # Compute z-score of current spread relative to last 3 spreads
+        mean_sp = sum(self._spread_hist3) / 3.0
+        var_sp = sum((x - mean_sp) ** 2 for x in self._spread_hist3) / 3.0
+        std_sp = math.sqrt(var_sp)
+
+        # If std is ~0, z-score is not meaningful
+        if std_sp < 1e-9:
+            z = 0.0
+        else:
+            z = (spread - mean_sp) / std_sp
+
+        # Update spread history AFTER computing z-score baseline
+        self._spread_hist3.append(spread)
+
+        # If spread is not unusually wide, do nothing
+        if z < Z_THRESH:
+            return None
+
+        # ---------------------------
+        # Predict market direction
+        # ---------------------------
+        direction = 0  # +1 up, -1 down
         if len(self.price_history) >= 3:
             y0, y1, y2 = self.price_history[-3], self.price_history[-2], self.price_history[-1]
 
-            # slope = cov(t,y) / var(t) for t=[0,1,2]
-            # mean(t)=1, var(t)=2
+            # Small, stable slope proxy + momentum
             mean_y = (y0 + y1 + y2) / 3.0
             cov = (-1.0) * (y0 - mean_y) + 0.0 * (y1 - mean_y) + (1.0) * (y2 - mean_y)
             slope = cov / 2.0
-
             momentum = y2 - y1
 
-            # Combine regression slope + momentum to decide direction
             combined = slope + momentum
+
             if combined > 0:
                 direction = 1
             elif combined < 0:
                 direction = -1
             else:
                 direction = 0
+
         elif len(self.price_history) >= 2:
             momentum = self.price_history[-1] - self.price_history[-2]
             if momentum > 0:
                 direction = 1
             elif momentum < 0:
                 direction = -1
-            else:
-                direction = 0
 
-        # 3) Set a tighter spread in that direction:
-        #    Buy at the bid +0.01 and sell at the ask-0.01 to beat others
-        qty = 100
+        # If no directional belief, you can either skip or pick a random side
+        if direction == 0:
+            return None
 
-        if spread > 0.02:
-            my_bid = round(bid + 0.01, 2)
-            my_ask = round(ask - 0.01, 2)
-        else:
-            # If spread is too tight to safely improve both sides, just sit at top-of-book
-            my_bid = round(bid, 2)
-            my_ask = round(ask, 2)
+        # ---------------------------
+        # Expected spread tightening
+        # ---------------------------
+        # How much wider than normal is the spread?
+        excess = max(spread - mean_sp, 0.0)
 
-        # Directional posting: tighten on the side we expect to get hit first
+        # Expected tightening amount (your "expected spread move")
+        expected_move = REVERT_K * excess
+
+        # Hard caps + floors (must be at least 1 tick to matter)
+        expected_move = max(TICK, min(expected_move, MAX_MOVE))
+
+        # Also can't tighten *past* crossing the book
+        # You must leave at least 1 tick between bid and ask.
+        max_inside = max(spread - TICK, TICK)
+        expected_move = min(expected_move, max_inside)
+
+        # ---------------------------
+        # Place tighter order NOW
+        # ---------------------------
         if direction > 0:
-            return self._create_order("BUY", my_bid, qty)
-        elif direction < 0:
-            return self._create_order("SELL", my_ask, qty)
+            # BUY inside the spread at bid + expected_move
+            price = bid + expected_move
 
-        # Neutral: do nothing
-        return None
+            # Ensure we don't cross the ask
+            price = min(price, ask - TICK)
+
+            if price <= bid:
+                return None
+
+            return self._create_order("BUY", round(price, 2), QTY)
+
+        else:
+            # SELL inside the spread at ask - expected_move
+            price = ask - expected_move
+
+            # Ensure we don't cross the bid
+            price = max(price, bid + TICK)
+
+            if price >= ask:
+                return None
+
+            return self._create_order("SELL", round(price, 2), QTY)
+
 
     # =========================================================================
     # ORDER CANCELLATION (FIXED)

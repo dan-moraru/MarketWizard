@@ -638,6 +638,13 @@ class TradingBot:
         # Alternate order side every time function is called
         self.flip_flop = not self.flip_flop
 
+        if self.inventory >= RISK_UNWIND_THRESHOLD-100:
+            # Forced SELL if at inventory limit
+            return self._create_order("SELL", sell_price, qty)
+        elif self.inventory <= -RISK_UNWIND_THRESHOLD+100:
+            # Forced BUY if at negative inventory limit
+            return self._create_order("BUY", buy_price, qty)
+
         if self.flip_flop:
             # SELL at ask - 0.01
             return self._create_order("SELL", sell_price, qty)

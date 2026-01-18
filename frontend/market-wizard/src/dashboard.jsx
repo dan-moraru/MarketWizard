@@ -178,22 +178,6 @@ export default function Dashboard() {
 
           <hr />
 
-          <h3>Data Quality Issues</h3>
-          <h4>Zero Data Points</h4>
-          <p>
-            We observed frequent, peristing rows where bid, ask, and mid prices were recorded as zero.
-            These segments appear to be either intentional obstacles or artifacts of the
-            synthetic data generator.
-          </p>
-
-          <h4>Flat Prices</h4>
-          <p>
-            In the normal_market scenario the bid/ask hardly changed for the whole run, meaning all trading was
-            taking place inside the spread. This may have been intentional but a scenario where prices don't move
-            seems like it may be an artifact of data generation.
-
-          </p>
-
           <hr />
 
           <h3>Simulation Bot Behavior</h3>

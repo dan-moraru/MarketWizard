@@ -1,0 +1,65 @@
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont;
+}
+
+/* Root layout */
+.dashboard {
+  display: flex;
+  width: 95vw;
+  color: #1f2933;
+  padding-top: 2.5%;
+  padding-bottom: 2.5%;
+}
+
+/* Sidebar */
+.sidebar {
+  background-color: none;
+  width: 220px;                 /* ✅ FIXED WIDTH */
+  padding: 10px;
+
+  flex-shrink: 0;               /* ✅ PREVENT COLLAPSE */
+}
+
+.sidebar-title {
+  font-size: 12px;
+  color: #1f2933;
+  margin-bottom: 10px;
+  text-align: center;
+}
+
+.tab {
+  width: 100%;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: #1f2933;
+  text-align: right;
+  cursor: pointer;
+}
+
+.tab:hover {
+  background: lightgrey;
+}
+
+.tab.active {
+  background: #8b0000;
+  color: white;
+}
+
+/* Main content */
+.content {
+  width: 100%;
+}
+
+/* Graph container */
+.graph-container {
+  display:flex;
+}
+
+.graph {
+  color: black;
+  font-size: 18px;
+}

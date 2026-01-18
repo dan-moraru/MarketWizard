@@ -100,3 +100,4 @@ print(importances.sort_values(ascending=False))
 output_filename = "market_scenario_model.pkl"
 joblib.dump(model, output_filename)
 print(f"\nModel successfully saved to {output_filename}")
+

@@ -155,6 +155,7 @@ export default function Dashboard() {
             Interestingly sometimes the bots provided pure arbitrage opportunities as evidenced
             by the following chart:
           </p>
+          <img src="pure_arb.png" alt="" />
 
           <h3>Key Lesson</h3>
           <p>

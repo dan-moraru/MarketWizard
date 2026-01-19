@@ -1,6 +1,6 @@
 # Market Wizard
 
-### :star: Winner of McHacks 13 National Bank Challenge! :star:
+### :star: Winner of McHacks 13 Hackathon National Bank Challenge! :star:
 
 Check out our [DevPost!](https://devpost.com/software/market-wizard)
 

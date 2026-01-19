@@ -1,5 +1,11 @@
 # Market Wizard
 
+### :star: Winner of McHacks 13 National Bank Challenge! :star:
+
+Check out our [DevPost!](https://devpost.com/software/market-wizard)
+
+Check out our [Website!](https://mchacks13-7gvi.vercel.app/)
+
 ## Overview
 
 Financial markets constantly shift between different regimes; calm, volatile, stressed, or dominated by high-frequency trading. Trading strategies that perform well in one regime often fail catastrophically in another.
